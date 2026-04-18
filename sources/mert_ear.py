@@ -85,6 +85,11 @@ def embed_audio(audio_path: Path) -> Optional[np.ndarray]:
         waveform = waveform.mean(dim=0, keepdim=True)
     waveform = waveform.squeeze(0)
 
+    # MERT's conv layers need at least ~400 samples; reject degenerate clips
+    if waveform.shape[0] < 400:
+        print(f"  [MERT] Audio too short ({waveform.shape[0]} samples), skipping")
+        return None
+
     inputs = processor(waveform.numpy(), sampling_rate=SAMPLE_RATE, return_tensors="pt")
     with torch.no_grad():
         outputs = model(**inputs, output_hidden_states=True)
@@ -244,15 +249,11 @@ def score_candidates(candidates: list[dict], library_index: dict) -> list[dict]:
     return scored
 
 
-# ── High-level API (replaces gemini_ear) ────────────────────────────
+# ── High-level API ──────────────────────────────────────────────────
 
 def analyze_batch(candidates: list[dict], library_tracks: list[dict],
                   max_songs: int = 15) -> list[dict]:
-    """Analyze a batch of candidates against the library.
-
-    Drop-in replacement for gemini_ear.analyze_batch, but uses MERT
-    similarity instead of Gemini audio analysis.
-    """
+    """Analyze a batch of candidates against the library using MERT similarity."""
     # Pre-filter non-songs
     skip_words = ["instrumental", "backing track", "karaoke", "compilation",
                   "mix", "playlist", "8d audio", "slowed", "reverb"]

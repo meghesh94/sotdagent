@@ -161,32 +161,29 @@ def _generate_queries_dynamic(profile, config: RunConfig):
 def _run_discovery(config: RunConfig, library_tracks=None):
     """Execute the full discovery pipeline, emitting events at each step."""
     global _current_run_id
-    import sys, os
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
     try:
         # Phase 1: Taste profile
         _emit("status", phase="profile", message="Building taste profile...")
-        from skills.find_songs import build_taste_profile, search_all, deduplicate, RADIO_SEEDS
         from collections import Counter
 
-        if library_tracks:
-            # Build profile from playlist tracks
-            artist_counter = Counter()
-            genre_counter = Counter()
-            for t in library_tracks:
-                if t.get("artist"):
-                    artist_counter[t["artist"]] += 1
-                for g in t.get("genres", []):
-                    genre_counter[g] += 1
-            profile = {
-                "tracks": library_tracks,
-                "track_count": len(library_tracks),
-                "top_artists": [{"name": n, "count": c} for n, c in artist_counter.most_common(20)],
-                "top_genres": [g for g, _ in genre_counter.most_common(20)],
-            }
-        else:
-            profile = build_taste_profile()
+        if not library_tracks:
+            _emit("error", message="No library tracks. Import playlists first.")
+            return
+
+        artist_counter = Counter()
+        genre_counter = Counter()
+        for t in library_tracks:
+            if t.get("artist"):
+                artist_counter[t["artist"]] += 1
+            for g in t.get("genres", []):
+                genre_counter[g] += 1
+        profile = {
+            "tracks": library_tracks,
+            "track_count": len(library_tracks),
+            "top_artists": [{"name": n, "count": c} for n, c in artist_counter.most_common(20)],
+            "top_genres": [g for g, _ in genre_counter.most_common(20)],
+        }
         _emit("profile", track_count=profile["track_count"],
               top_artists=[a for a in profile["top_artists"][:15]],
               top_genres=profile["top_genres"][:15])
@@ -229,12 +226,14 @@ def _run_discovery(config: RunConfig, library_tracks=None):
 
         # Phase 4: Deduplicate
         _emit("status", phase="dedup", message="Deduplicating...")
-        import inventory
-        existing_keys = inventory.get_existing_keys()
         library_keys = {(t["name"].lower().strip(), t["artist"].lower().strip()) for t in profile["tracks"]}
-        ref_keys = {(name.lower(), artist.lower()) for name, artist in RADIO_SEEDS}
-        known_keys = existing_keys | library_keys | ref_keys
-        unique = deduplicate(raw, known_keys)
+        seen = set(library_keys)
+        unique = []
+        for c in raw:
+            key = (c.get("name", "").lower().strip(), c.get("artist", "").lower().strip())
+            if key not in seen and key[0] and key[1]:
+                seen.add(key)
+                unique.append(c)
         _emit("dedup", raw_count=len(raw), unique_count=len(unique))
 
         if not unique:

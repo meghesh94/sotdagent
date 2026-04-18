@@ -12,6 +12,11 @@ uploads/
 # MERT model cache
 library_index.npz
 
+# Database
+sotd.db
+sotd.db-shm
+sotd.db-wal
+
 # Python
 __pycache__/
 *.pyc

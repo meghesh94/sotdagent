@@ -6,9 +6,9 @@
     <title>SOTD — Song of the Day</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=10">
+    <link rel="stylesheet" href="/static/style.css?v=11">
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="/static/app.js?v=10"></script>
+    <script src="/static/app.js?v=11"></script>
 </head>
 <body>
 <div class="app" x-data="sotdApp()" x-init="init()">
@@ -71,6 +71,21 @@
                     <div x-show="indexMessage" style="margin-top:6px; font-size:0.8rem; color:var(--accent)" x-text="indexMessage"></div>
                 </div>
             </template>
+        </div>
+
+        <h2>Add a song you like</h2>
+        <div class="library-section">
+            <div style="display:flex; gap:6px;">
+                <input type="text" class="text-input" placeholder="Paste YouTube or YT Music link..."
+                       x-ref="likeUrl"
+                       @keydown.enter="addLikedSong()">
+                <button class="action-btn" style="white-space:nowrap; color:var(--accent); border-color:var(--accent)"
+                        :disabled="likeLoading"
+                        @click="addLikedSong()">
+                    <span x-text="likeLoading ? '...' : 'Add'"></span>
+                </button>
+            </div>
+            <div x-show="likeMessage" style="font-size:0.8rem; color:var(--accent); margin-top:6px;" x-text="likeMessage"></div>
         </div>
 
         <h2>Discovery Controls</h2>
@@ -205,6 +220,105 @@
 
     <!-- ─── Main: Profile + Results ─────────────────────────── -->
     <main class="main">
+
+        <!-- Nav tabs -->
+        <div class="main-tabs">
+            <button class="main-tab" :class="{ active: activeTab === 'discover' }" @click="activeTab = 'discover'">Discover</button>
+            <button class="main-tab" :class="{ active: activeTab === 'library' }" @click="activeTab = 'library'; loadLibrary()">
+                Library <span class="tab-count" x-show="librarySongs.length" x-text="librarySongs.length"></span>
+            </button>
+        </div>
+
+        <!-- ═══ Library Tab ═══════════════════════════════════ -->
+        <template x-if="activeTab === 'library'">
+            <div>
+                <template x-if="librarySongs.length === 0">
+                    <div class="empty-state">
+                        <h2>Your library is empty</h2>
+                        <p>Rate songs 4+ stars during discovery, or add songs you like from the sidebar.</p>
+                    </div>
+                </template>
+
+                <template x-if="librarySongs.length > 0">
+                    <div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                            <h2 style="font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-tertiary);">
+                                Your Songs
+                                <span style="color:var(--accent)" x-text="'(' + librarySongs.length + ')'"></span>
+                            </h2>
+                            <div style="display:flex; gap:6px;">
+                                <button class="preset-btn" :class="{ active: libraryFilter === 'all' }" @click="libraryFilter = 'all'">All</button>
+                                <button class="preset-btn" :class="{ active: libraryFilter === 'approved' }" @click="libraryFilter = 'approved'">Approved</button>
+                                <button class="preset-btn" :class="{ active: libraryFilter === 'discovered' }" @click="libraryFilter = 'discovered'">Discovered</button>
+                            </div>
+                        </div>
+                        <div class="results-grid">
+                            <template x-for="song in filteredLibrary()" :key="song._id">
+                                <div class="song-card" :class="{ picked: song.status === 'approved' }">
+                                    <div class="vinyl-wrap">
+                                        <template x-if="song.yt_video_id">
+                                            <img class="vinyl-thumb" :src="ytThumb(song.yt_video_id)" :alt="song.name" loading="lazy">
+                                        </template>
+                                        <template x-if="!song.yt_video_id">
+                                            <div class="vinyl-thumb" style="background:var(--bg-secondary); display:flex; align-items:center; justify-content:center; font-size:1.5rem; color:var(--text-tertiary);">&#9835;</div>
+                                        </template>
+                                        <div class="vinyl-hole"></div>
+                                    </div>
+                                    <div class="song-info">
+                                        <div class="song-title" x-text="song.name"></div>
+                                        <div class="song-artist" x-text="song.artist"></div>
+                                        <div class="song-meta">
+                                            <template x-if="song.status === 'approved'">
+                                                <span class="sim-badge" style="background:rgba(0,212,170,0.3)">APPROVED</span>
+                                            </template>
+                                            <template x-if="song.rating > 0">
+                                                <span class="sim-badge" x-text="'&#9733; ' + song.rating"></span>
+                                            </template>
+                                            <template x-if="song.mert?.similarity_top5">
+                                                <span class="sim-badge" x-text="song.mert.similarity_top5.toFixed(3)"></span>
+                                            </template>
+                                            <template x-if="song.view_count > 0">
+                                                <span class="sim-badge" style="background:rgba(139,148,158,0.15); color:var(--text-secondary)" x-text="formatViews(song.view_count) + ' views'"></span>
+                                            </template>
+                                        </div>
+                                        <template x-if="song.mert?.closest_songs?.length">
+                                            <div class="sounds-like">
+                                                Sounds like: <span x-text="song.mert.closest_songs[0].name + ' — ' + song.mert.closest_songs[0].artist"></span>
+                                            </div>
+                                        </template>
+                                        <div class="song-actions">
+                                            <template x-if="song.yt_video_id">
+                                                <button class="action-btn play-inline" @click="playLibrarySong(song)">
+                                                    <span x-text="isCurrentlyPlaying(song._id) ? '&#10074;&#10074; Pause' : '&#9654; Play'"></span>
+                                                </button>
+                                            </template>
+                                            <div class="star-rating">
+                                                <template x-for="star in [1,2,3,4,5]" :key="star">
+                                                    <button class="star-btn"
+                                                            :class="{ filled: (song.rating || 0) >= star }"
+                                                            @click="rateLibrarySong(song, star)">
+                                                    </button>
+                                                </template>
+                                            </div>
+                                            <button class="action-btn skip" @click="removeLibrarySong(song._id)">Remove</button>
+                                            <template x-if="song.yt_video_id">
+                                                <a class="action-btn play-btn"
+                                                   :href="'https://music.youtube.com/watch?v=' + song.yt_video_id"
+                                                   target="_blank">YT Music &#8599;</a>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <!-- ═══ Discover Tab ══════════════════════════════════ -->
+        <template x-if="activeTab === 'discover'">
+        <div>
 
         <!-- Taste Profile -->
         <template x-if="profile && profile.track_count > 0">
@@ -374,6 +488,9 @@
                 <p>Adjust the controls and hit Run Discovery to find your next Song of the Day.</p>
             </div>
         </template>
+
+        </div>
+        </template><!-- /discover tab -->
 
     </main>
 

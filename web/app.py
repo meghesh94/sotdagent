@@ -1,13 +1,13 @@
 """Flask web app for SOTD Music Agent."""
 
+from typing import Optional
+
 import json
 import os
 import sys
 import threading
-import uuid
 import webbrowser
 from collections import Counter
-from datetime import datetime
 from queue import Empty
 
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
@@ -15,34 +15,35 @@ from flask import Flask, Response, jsonify, render_template, request, send_from_
 # Add parent dir to path so we can import the existing modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from web import db
 from web.discovery_runner import RunConfig, get_event_queue, is_running, start_discovery, force_reset
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
-# ── In-memory state ─────────────────────────────────────────────
+# Initialize database on import
+db.init()
 
-_discovered_songs = {}
-
-# Playlist-based library: list of {url, platform, playlist_id, title, track_count, tracks}
-_playlists = []
-_playlist_lock = threading.Lock()
-
-# Background indexing state
+# Background indexing state (still in-memory — transient by nature)
 _indexing = False
 _index_progress = {"done": 0, "total": 0, "current_song": ""}
 
 
 def _get_all_tracks() -> list[dict]:
-    """Get all tracks across all imported playlists (deduped)."""
-    seen = set()
-    tracks = []
-    with _playlist_lock:
-        for pl in _playlists:
-            for t in pl.get("tracks", []):
-                key = (t.get("name", "").lower().strip(), t.get("artist", "").lower().strip())
-                if key not in seen and key[0]:
-                    seen.add(key)
-                    tracks.append(t)
+    """Get all tracks across all playlists + approved songs (deduped)."""
+    tracks = db.get_all_tracks()
+    approved = db.get_approved_tracks()
+
+    # Dedup approved songs against playlist tracks
+    seen = {(t["name"].lower().strip(), t["artist"].lower().strip()) for t in tracks}
+    for t in approved:
+        key = (t["name"].lower().strip(), t["artist"].lower().strip())
+        if key not in seen:
+            if t.get("yt_video_id"):
+                t["youtube_link"] = f"https://www.youtube.com/watch?v={t['yt_video_id']}"
+                t["yt_link"] = t["youtube_link"]
+            seen.add(key)
+            tracks.append(t)
+
     return tracks
 
 
@@ -111,14 +112,14 @@ def api_profile():
 
 @app.route("/api/playlists")
 def api_playlists():
-    with _playlist_lock:
-        return jsonify([{
-            "url": pl["url"],
-            "platform": pl["platform"],
-            "title": pl["title"],
-            "track_count": pl["track_count"],
-            "playlist_id": pl["playlist_id"],
-        } for pl in _playlists])
+    playlists = db.get_playlists()
+    return jsonify([{
+        "url": pl["url"],
+        "platform": pl["platform"],
+        "title": pl["title"],
+        "track_count": pl["track_count"],
+        "playlist_id": pl["id"],
+    } for pl in playlists])
 
 
 @app.route("/api/playlists", methods=["POST"])
@@ -134,18 +135,21 @@ def api_add_playlist():
         return jsonify({"error": "Unrecognized playlist URL. Supports Spotify and YT Music playlists."}), 400
 
     # Check for duplicates
-    with _playlist_lock:
-        for pl in _playlists:
-            if pl["playlist_id"] == parsed["playlist_id"]:
-                return jsonify({"error": f"Playlist already added: {pl['title']}"}), 409
+    if db.get_playlist(parsed["playlist_id"]):
+        return jsonify({"error": "Playlist already added."}), 409
 
     # Fetch in background to not block the UI
     def _fetch():
         try:
             from sources.playlist_import import fetch_playlist
             result = fetch_playlist(url)
-            with _playlist_lock:
-                _playlists.append(result)
+            db.add_playlist(
+                playlist_id=result["playlist_id"],
+                url=result["url"],
+                platform=result["platform"],
+                title=result["title"],
+            )
+            db.add_playlist_tracks(result["playlist_id"], result.get("tracks", []))
             print(f"[Playlist] Added: {result['title']} ({result['track_count']} tracks)")
         except Exception as e:
             print(f"[Playlist] Failed to fetch {url}: {e}")
@@ -158,8 +162,7 @@ def api_add_playlist():
 
 @app.route("/api/playlists/<playlist_id>", methods=["DELETE"])
 def api_remove_playlist(playlist_id):
-    with _playlist_lock:
-        _playlists[:] = [pl for pl in _playlists if pl["playlist_id"] != playlist_id]
+    db.remove_playlist(playlist_id)
     return jsonify({"ok": True})
 
 
@@ -180,9 +183,6 @@ def api_index_playlists():
         global _indexing
         try:
             from sources.mert_ear import build_library_index
-            for t in tracks:
-                if not t.get("youtube_link") and t.get("yt_video_id"):
-                    t["youtube_link"] = f"https://www.youtube.com/watch?v={t['yt_video_id']}"
 
             def _on_progress(done, total, song_name):
                 _index_progress["done"] = done
@@ -270,7 +270,6 @@ def api_discover():
     if is_running():
         return jsonify({"error": "A discovery run is already active."}), 409
 
-    _discovered_songs.clear()
     body = request.get_json(silent=True) or {}
 
     config = RunConfig(
@@ -288,7 +287,6 @@ def api_discover():
         skip_words=body.get("skip_words", RunConfig().skip_words),
     )
 
-    # Pass playlist tracks to the runner so it uses them instead of CSV
     tracks = _get_all_tracks()
     run_id = start_discovery(config, library_tracks=tracks if tracks else None)
     return jsonify({"run_id": run_id})
@@ -305,10 +303,9 @@ def api_discover_stream():
                 yield ":\n\n"  # SSE keepalive
                 continue
 
-            # Store discovered songs in memory for approve/skip
+            # Persist discovered songs to database
             if event.get("type") == "result" and "song" in event:
-                song = event["song"]
-                _discovered_songs[song["_id"]] = song
+                db.save_song(event["song"])
 
             yield f"data: {json.dumps(event)}\n\n"
 
@@ -321,133 +318,93 @@ def api_discover_stream():
 
 # ── API: Song actions ───────────────────────────────────────────────
 
+@app.route("/api/songs/like", methods=["POST"])
+def api_like_song():
+    body = request.get_json(silent=True) or {}
+    url = body.get("url", "").strip()
+
+    if not url:
+        return jsonify({"error": "Paste a YouTube or YT Music link."}), 400
+
+    # Extract video ID from various YouTube URL formats
+    video_id = _extract_yt_video_id(url)
+    if not video_id:
+        return jsonify({"error": "Could not parse a YouTube video ID from that link."}), 400
+
+    # Fetch title + artist via yt-dlp
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "--skip-download", "--print", "%(title)s\t%(channel)s", "--no-playlist", "--quiet",
+             f"https://www.youtube.com/watch?v={video_id}"],
+            capture_output=True, text=True, timeout=15,
+        )
+        parts = result.stdout.strip().split("\t")
+        raw_title = parts[0] if parts else ""
+        channel = parts[1] if len(parts) > 1 else ""
+    except Exception:
+        raw_title, channel = "", ""
+
+    # Parse "Artist - Song" format common on YouTube
+    if " - " in raw_title:
+        artist, name = raw_title.split(" - ", 1)
+    else:
+        name = raw_title or video_id
+        artist = channel or "Unknown"
+
+    name = name.strip()
+    artist = artist.strip()
+
+    song_id = db.add_liked_song(name, artist, video_id)
+    return jsonify({"ok": True, "song_id": song_id, "name": name, "artist": artist})
+
+
+def _extract_yt_video_id(url: str) -> Optional[str]:
+    """Extract video ID from YouTube / YT Music URLs."""
+    import re
+    # music.youtube.com/watch?v=xxx, youtube.com/watch?v=xxx, youtu.be/xxx
+    m = re.search(r'(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})', url)
+    return m.group(1) if m else None
+
+
+@app.route("/api/library")
+def api_library():
+    songs = db.get_library_songs()
+    return jsonify(songs)
+
+
+@app.route("/api/songs/<song_id>", methods=["DELETE"])
+def api_remove_song(song_id):
+    db.remove_song(song_id)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/songs/<song_id>/approve", methods=["POST"])
 def api_approve(song_id):
-    song = _discovered_songs.get(song_id)
+    song = db.get_song(song_id)
     if not song:
         return jsonify({"error": "Song not found"}), 404
 
-    import inventory
-    inventory.add_song({
-        "Song Name": song["name"],
-        "Artist": song["artist"],
-        "Album": song.get("album", ""),
-        "Genre": "",
-        "Mood": "",
-        "Tempo": "",
-        "Language": "",
-        "Release Year": "",
-        "Spotify Link": song.get("spotify_link", ""),
-        "YT Music Link": song.get("yt_link", ""),
-        "MusicBrainz ID": "",
-        "Date Added": datetime.now().strftime("%Y-%m-%d"),
-        "Status": "candidate",
-        "Date Published": "",
-    })
-
-    # Feed back into taste library — add as a track to the "approved" playlist
-    approved_track = {
-        "name": song["name"],
-        "artist": song["artist"],
-        "album": song.get("album", ""),
-        "yt_video_id": song.get("yt_video_id", ""),
-        "yt_link": song.get("yt_link", ""),
-        "youtube_link": f"https://www.youtube.com/watch?v={song.get('yt_video_id', '')}",
-        "spotify_link": song.get("spotify_link", ""),
-    }
-    with _playlist_lock:
-        # Find or create the "Approved Songs" playlist
-        approved_pl = None
-        for pl in _playlists:
-            if pl.get("playlist_id") == "_approved":
-                approved_pl = pl
-                break
-        if not approved_pl:
-            approved_pl = {
-                "url": "",
-                "platform": "sotd",
-                "playlist_id": "_approved",
-                "title": "Approved Songs",
-                "track_count": 0,
-                "tracks": [],
-            }
-            _playlists.append(approved_pl)
-        approved_pl["tracks"].append(approved_track)
-        approved_pl["track_count"] = len(approved_pl["tracks"])
-
+    db.update_song_status(song_id, "approved")
     return jsonify({"ok": True, "song": song["name"]})
 
 
 @app.route("/api/songs/<song_id>/rate", methods=["POST"])
 def api_rate(song_id):
-    song = _discovered_songs.get(song_id)
+    song = db.get_song(song_id)
     if not song:
         return jsonify({"error": "Song not found"}), 404
 
     body = request.get_json(silent=True) or {}
     rating = body.get("rating", 0)
-    song["rating"] = rating
-
-    # Songs rated 4+ automatically feed into the taste library
-    if rating >= 4:
-        approved_track = {
-            "name": song["name"],
-            "artist": song["artist"],
-            "album": song.get("album", ""),
-            "yt_video_id": song.get("yt_video_id", ""),
-            "yt_link": song.get("yt_link", ""),
-            "youtube_link": f"https://www.youtube.com/watch?v={song.get('yt_video_id', '')}",
-            "spotify_link": song.get("spotify_link", ""),
-            "rating": rating,
-        }
-        with _playlist_lock:
-            approved_pl = None
-            for pl in _playlists:
-                if pl.get("playlist_id") == "_approved":
-                    approved_pl = pl
-                    break
-            if not approved_pl:
-                approved_pl = {
-                    "url": "",
-                    "platform": "sotd",
-                    "playlist_id": "_approved",
-                    "title": "Approved Songs",
-                    "track_count": 0,
-                    "tracks": [],
-                }
-                _playlists.append(approved_pl)
-            # Don't double-add
-            existing_ids = {t.get("yt_video_id") for t in approved_pl["tracks"]}
-            if approved_track["yt_video_id"] not in existing_ids:
-                approved_pl["tracks"].append(approved_track)
-                approved_pl["track_count"] = len(approved_pl["tracks"])
-
-        # Also write to inventory
-        import inventory
-        inventory.add_song({
-            "Song Name": song["name"],
-            "Artist": song["artist"],
-            "Album": song.get("album", ""),
-            "Genre": "",
-            "Mood": "",
-            "Tempo": "",
-            "Language": "",
-            "Release Year": "",
-            "Spotify Link": song.get("spotify_link", ""),
-            "YT Music Link": song.get("yt_link", ""),
-            "MusicBrainz ID": "",
-            "Date Added": datetime.now().strftime("%Y-%m-%d"),
-            "Status": "candidate",
-            "Date Published": "",
-        })
+    db.update_song_rating(song_id, rating)
 
     return jsonify({"ok": True, "song": song["name"], "rating": rating})
 
 
 @app.route("/api/songs/<song_id>/skip", methods=["POST"])
 def api_skip(song_id):
-    if song_id in _discovered_songs:
-        del _discovered_songs[song_id]
+    db.update_song_status(song_id, "skipped")
     return jsonify({"ok": True})
 
 

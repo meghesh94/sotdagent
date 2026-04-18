@@ -299,6 +299,46 @@ input[type="range"]::-webkit-slider-thumb {
     max-height: calc(100vh - 70px);
 }
 
+/* ── Main Tabs ───────────────────────────────────────────────── */
+.main-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0;
+}
+
+.main-tab {
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-tertiary);
+    font-family: var(--font);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.main-tab:hover { color: var(--text-secondary); }
+
+.main-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.tab-count {
+    font-size: 0.75rem;
+    background: var(--accent-dim);
+    color: var(--accent);
+    padding: 1px 7px;
+    border-radius: 10px;
+}
+
 /* ── Taste Profile ────────────────────────────────────────────── */
 .taste-profile {
     display: flex;

@@ -43,6 +43,15 @@ function sotdApp() {
         approved: new Set(),
         songRatings: {},
 
+        // Tabs & library
+        activeTab: 'discover',
+        librarySongs: [],
+        libraryFilter: 'all',
+
+        // Like song
+        likeMessage: '',
+        likeLoading: false,
+
         // Audio player
         nowPlaying: null,
         audioEl: null,
@@ -59,6 +68,7 @@ function sotdApp() {
                 this.loadQueries(),
                 this.loadLibraryStats(),
                 this.loadPlaylists(),
+                this.loadLibrary(),
             ]);
             // Poll index status every 5s while indexing
             setInterval(() => { if (this.indexing) this.pollIndexStatus(); }, 5000);
@@ -142,6 +152,74 @@ function sotdApp() {
             } catch (e) {
                 console.error('Failed to remove playlist:', e);
             }
+        },
+
+        // ── Library ────────────────────────────────────────────
+
+        async loadLibrary() {
+            try {
+                const res = await fetch('/api/library');
+                this.librarySongs = await res.json();
+            } catch (e) {
+                console.error('Failed to load library:', e);
+            }
+        },
+
+        filteredLibrary() {
+            if (this.libraryFilter === 'all') return this.librarySongs;
+            return this.librarySongs.filter(s => s.status === this.libraryFilter);
+        },
+
+        playLibrarySong(song) {
+            this.playSong(song);
+        },
+
+        async rateLibrarySong(song, rating) {
+            if (song.rating === rating) rating = 0;
+            try {
+                await fetch(`/api/songs/${song._id}/rate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rating }),
+                });
+                song.rating = rating;
+                song.status = rating >= 4 ? 'approved' : 'discovered';
+            } catch (e) {
+                console.error('Rate failed:', e);
+            }
+        },
+
+        async removeLibrarySong(songId) {
+            try {
+                await fetch(`/api/songs/${songId}`, { method: 'DELETE' });
+                this.librarySongs = this.librarySongs.filter(s => s._id !== songId);
+                await this.loadProfile();
+            } catch (e) {
+                console.error('Remove failed:', e);
+            }
+        },
+
+        async addLikedSong() {
+            const url = this.$refs.likeUrl?.value?.trim();
+            if (!url) { this.likeMessage = 'Paste a YouTube or YT Music link.'; return; }
+            this.likeLoading = true;
+            this.likeMessage = '';
+            try {
+                const res = await fetch('/api/songs/like', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url }),
+                });
+                const data = await res.json();
+                if (!res.ok) { this.likeMessage = data.error; this.likeLoading = false; return; }
+                this.$refs.likeUrl.value = '';
+                this.likeMessage = `Added "${data.name}" by ${data.artist}`;
+                setTimeout(() => { this.likeMessage = ''; }, 5000);
+                await Promise.all([this.loadProfile(), this.loadQueries(), this.loadLibrary()]);
+            } catch (e) {
+                this.likeMessage = 'Failed to add song.';
+            }
+            this.likeLoading = false;
         },
 
         async buildIndex() {
