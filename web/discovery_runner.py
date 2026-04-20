@@ -249,7 +249,7 @@ def _run_discovery(config: RunConfig, library_tracks=None):
         if filter_views or filter_year:
             _emit("status", phase="filtering", message=f"Checking views & release year ({len(unique)} songs)...")
             import subprocess
-            from sources import yt_dlp_cmd
+            from sources import yt_dlp_cmd, ffmpeg_env
             before_count = len(unique)
             filtered = []
             for i, song in enumerate(unique):
@@ -268,7 +268,7 @@ def _run_discovery(config: RunConfig, library_tracks=None):
                          "--print", "%(view_count)s\t%(upload_date)s",
                          "--no-warnings",
                          f"https://www.youtube.com/watch?v={vid}"],
-                        capture_output=True, text=True, timeout=10,
+                        capture_output=True, text=True, timeout=10, env=ffmpeg_env(),
                     )
                     parts = result.stdout.strip().split("\t")
                     views_str = parts[0] if parts else "0"

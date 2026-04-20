@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from sources import yt_dlp_cmd
+from sources import yt_dlp_cmd, ffmpeg_env
 
 import numpy as np
 import torch
@@ -66,6 +66,7 @@ def download_audio(yt_video_id: str, duration: int = CLIP_DURATION_SEC) -> Optio
             ],
             check=True,
             timeout=60,
+            env=ffmpeg_env(),
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"  [yt-dlp] Failed for {yt_video_id}: {e}")

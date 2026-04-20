@@ -337,12 +337,12 @@ def api_like_song():
 
     # Fetch title + artist via yt-dlp
     import subprocess
-    from sources import yt_dlp_cmd
+    from sources import yt_dlp_cmd, ffmpeg_env
     try:
         result = subprocess.run(
             [*yt_dlp_cmd(), "--skip-download", "--print", "%(title)s\t%(channel)s", "--no-playlist", "--quiet",
              f"https://www.youtube.com/watch?v={video_id}"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=15, env=ffmpeg_env(),
         )
         parts = result.stdout.strip().split("\t")
         raw_title = parts[0] if parts else ""

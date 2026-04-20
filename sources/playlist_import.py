@@ -34,7 +34,7 @@ def fetch_ytmusic_playlist(playlist_id: str) -> dict:
     """
     import subprocess
     import json as _json
-    from sources import yt_dlp_cmd
+    from sources import yt_dlp_cmd, ffmpeg_env
 
     url = f"https://www.youtube.com/playlist?list={playlist_id}"
     try:
@@ -45,7 +45,7 @@ def fetch_ytmusic_playlist(playlist_id: str) -> dict:
                 "--no-warnings",
                 url,
             ],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=120, env=ffmpeg_env(),
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         raise RuntimeError(f"yt-dlp failed: {e}")
