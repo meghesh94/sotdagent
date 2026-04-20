@@ -14,11 +14,6 @@ A music discovery agent that learns your taste from playlists and finds songs yo
 git clone https://github.com/meghesh94/sotdagent.git
 cd sotdagent
 
-# Use a venv (recommended)
-python -m venv venv
-# Windows: venv\Scripts\activate
-# macOS/Linux: source venv/bin/activate
-
 pip install -r requirements.txt
 
 # Optional: add Spotify / YT Music credentials
@@ -26,6 +21,9 @@ cp .env.example .env
 
 python -m web.app
 ```
+
+> If `pip install` complains about `externally-managed-environment` (newer macOS/Linux), use a venv:
+> `python -m venv venv && source venv/bin/activate` (Windows: `venv\Scripts\activate`), then re-run `pip install`.
 
 Open **http://localhost:5555** and paste a playlist URL to get started.
 
