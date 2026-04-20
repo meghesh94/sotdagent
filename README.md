@@ -6,72 +6,56 @@ A music discovery agent that learns your taste from playlists and finds songs yo
 1. Add your Spotify or YouTube Music playlists
 2. Your taste profile builds automatically — artists, songs, acoustic DNA
 3. Hit "Run Discovery" — the agent searches for new music, filters by view count and release year, then scores candidates by how they *sound* compared to your library
-4. Rate songs 1-5 stars — high-rated songs feed back into your profile, sharpening future discovery
+4. Rate songs 1–5 stars — high-rated songs feed back into your profile, sharpening future discovery
 
 ## Quick Start
 
 ```bash
-# Clone
 git clone https://github.com/meghesh94/sotdagent.git
 cd sotdagent
 
-# Install dependencies
-pip3 install -r requirements.txt
+# Use a venv (recommended)
+python -m venv venv
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
 
-# Install yt-dlp (for audio downloads + playlist import)
-brew install yt-dlp   # macOS
-# or: pip3 install yt-dlp
+pip install -r requirements.txt
 
-# Install ffmpeg (for audio processing)
-brew install ffmpeg   # macOS
-
-# Copy env file and fill in your keys (optional — discovery works without these)
+# Optional: add Spotify / YT Music credentials
 cp .env.example .env
 
-# Start the web UI
-python3 -m web.app
+python -m web.app
 ```
 
 Open **http://localhost:5555** and paste a playlist URL to get started.
 
-## What You Need
+## Requirements
 
-**Required:**
-- Python 3.9+
-- `yt-dlp` and `ffmpeg` installed and on PATH
+- **Python 3.9+**
+- Everything else (`yt-dlp`, `ffmpeg`, `torch`, `torchcodec`, MERT) is installed via `pip install -r requirements.txt`. No system packages needed.
 
-**Optional (for full features):**
-- Spotify API credentials → enables popularity filter + publish to Spotify
-- Google Sheets service account → enables inventory tracking
-- Telegram bot token → enables song notifications
-- YT Music OAuth → enables publish to YT Music playlist
+### Optional integrations
 
-Without these, the core discovery loop (import playlist → discover → rate) works fine.
+Edit `.env` to unlock:
+
+- **Spotify** (`SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_PLAYLIST_ID`) — popularity filter + publish to a Spotify playlist. Get keys at https://developer.spotify.com/dashboard
+- **YT Music** (`YTMUSIC_AUTH_FILE`, `YTMUSIC_PLAYLIST_ID`) — publish to a YT Music playlist. Run `ytmusicapi oauth` to generate the auth file.
+
+Without these, the core loop (import → discover → rate) works fine.
 
 ## Tech Stack
 
-- **MERT-v1-95M** — music audio understanding model (380MB, runs on CPU, no GPU needed). Embeds songs as 768-dim vectors for acoustic similarity scoring
-- **yt-dlp** — downloads 60-second audio clips + fetches view counts and release dates
-- **Flask** — web server
-- **Alpine.js** — reactive UI (loaded from CDN, no build step)
+- **MERT-v1-95M** — music audio-understanding model (~380 MB, CPU-only). Embeds clips as 768-dim vectors for acoustic similarity scoring.
+- **yt-dlp** — playlist import + 60-second audio clips + view counts / release dates.
+- **Flask** — web server. **Alpine.js** (CDN) — reactive UI, no build step.
+- **SQLite** — local store for ratings and song metadata.
 
 ## Troubleshooting
 
-**`ModuleNotFoundError`** — make sure you install from the project root:
-```bash
-pip3 install -r requirements.txt
-```
+**MERT model download is slow** — first run pulls ~380 MB from Hugging Face into `~/.cache/huggingface/`. Subsequent runs use the cache.
 
-**`yt-dlp: command not found`** — install it:
-```bash
-pip3 install yt-dlp
-# or: brew install yt-dlp (macOS)
-```
+**`ImportError: TorchCodec is required`** — your `pip install` predates `torchcodec` being added. Run `pip install -r requirements.txt` again.
 
-**`ffmpeg not found`** — required for audio conversion:
-```bash
-brew install ffmpeg        # macOS
-sudo apt install ffmpeg    # Ubuntu/Debian
-```
+**yt-dlp "No supported JavaScript runtime" warning** — harmless; YouTube downloads still work. For best reliability install [Deno](https://deno.land) or Node.js and make sure it's on `PATH`.
 
-**MERT model download hangs** — first run downloads ~380MB from Hugging Face. Make sure you have internet access. It caches in `~/.cache/huggingface/`.
+**Windows encoding errors on startup** — already handled: the app forces UTF-8 stdout/stderr. If you still see `UnicodeEncodeError`, set `PYTHONUTF8=1` before running.
