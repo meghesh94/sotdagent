@@ -117,7 +117,7 @@ def get_playlists() -> list[dict]:
         return [dict(r) for r in rows]
 
 
-def get_playlist(playlist_id: str) -> dict | None:
+def get_playlist(playlist_id: str) -> Optional[dict]:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
         return dict(row) if row else None
@@ -176,7 +176,7 @@ def save_song(song: dict):
         )
 
 
-def get_song(song_id: str) -> dict | None:
+def get_song(song_id: str) -> Optional[dict]:
     with get_db() as conn:
         row = conn.execute("SELECT * FROM songs WHERE id = ?", (song_id,)).fetchone()
         if not row:

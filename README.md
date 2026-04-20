@@ -55,14 +55,23 @@ Without these, the core discovery loop (import playlist → discover → rate) w
 - **Flask** — web server
 - **Alpine.js** — reactive UI (loaded from CDN, no build step)
 
-## CLI (legacy)
+## Troubleshooting
 
+**`ModuleNotFoundError`** — make sure you install from the project root:
 ```bash
-python3 agent.py find              # Discover new songs
-python3 agent.py find --no-listen  # Search only, skip MERT analysis
-python3 agent.py index             # Build MERT library index
-python3 agent.py index --force     # Rebuild index from scratch
-python3 agent.py publish           # Publish candidates to playlists + Telegram
-python3 agent.py candidates        # List current candidates
-python3 agent.py profile           # Print taste profile
+pip3 install -r requirements.txt
 ```
+
+**`yt-dlp: command not found`** — install it:
+```bash
+pip3 install yt-dlp
+# or: brew install yt-dlp (macOS)
+```
+
+**`ffmpeg not found`** — required for audio conversion:
+```bash
+brew install ffmpeg        # macOS
+sudo apt install ffmpeg    # Ubuntu/Debian
+```
+
+**MERT model download hangs** — first run downloads ~380MB from Hugging Face. Make sure you have internet access. It caches in `~/.cache/huggingface/`.
