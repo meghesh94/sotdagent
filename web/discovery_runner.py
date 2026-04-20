@@ -249,6 +249,7 @@ def _run_discovery(config: RunConfig, library_tracks=None):
         if filter_views or filter_year:
             _emit("status", phase="filtering", message=f"Checking views & release year ({len(unique)} songs)...")
             import subprocess
+            from sources import yt_dlp_cmd
             before_count = len(unique)
             filtered = []
             for i, song in enumerate(unique):
@@ -263,7 +264,7 @@ def _run_discovery(config: RunConfig, library_tracks=None):
                           song=f"{name} — {artist}")
                 try:
                     result = subprocess.run(
-                        ["yt-dlp", "--skip-download",
+                        [*yt_dlp_cmd(), "--skip-download",
                          "--print", "%(view_count)s\t%(upload_date)s",
                          "--no-warnings",
                          f"https://www.youtube.com/watch?v={vid}"],

@@ -15,6 +15,7 @@ from flask import Flask, Response, jsonify, render_template, request, send_from_
 # Add parent dir to path so we can import the existing modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from sources import check_ffmpeg
 from web import db
 from web.discovery_runner import RunConfig, get_event_queue, is_running, start_discovery, force_reset
 
@@ -22,6 +23,9 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 
 # Initialize database on import
 db.init()
+
+# Warn early if ffmpeg is missing
+check_ffmpeg()
 
 # Background indexing state (still in-memory — transient by nature)
 _indexing = False
@@ -333,9 +337,10 @@ def api_like_song():
 
     # Fetch title + artist via yt-dlp
     import subprocess
+    from sources import yt_dlp_cmd
     try:
         result = subprocess.run(
-            ["yt-dlp", "--skip-download", "--print", "%(title)s\t%(channel)s", "--no-playlist", "--quiet",
+            [*yt_dlp_cmd(), "--skip-download", "--print", "%(title)s\t%(channel)s", "--no-playlist", "--quiet",
              f"https://www.youtube.com/watch?v={video_id}"],
             capture_output=True, text=True, timeout=15,
         )

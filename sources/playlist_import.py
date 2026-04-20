@@ -34,12 +34,13 @@ def fetch_ytmusic_playlist(playlist_id: str) -> dict:
     """
     import subprocess
     import json as _json
+    from sources import yt_dlp_cmd
 
     url = f"https://www.youtube.com/playlist?list={playlist_id}"
     try:
         result = subprocess.run(
             [
-                "yt-dlp", "--flat-playlist",
+                *yt_dlp_cmd(), "--flat-playlist",
                 "--dump-json",
                 "--no-warnings",
                 url,

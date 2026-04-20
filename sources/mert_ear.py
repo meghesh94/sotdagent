@@ -10,6 +10,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from sources import yt_dlp_cmd
+
 import numpy as np
 import torch
 import torchaudio
@@ -53,7 +55,7 @@ def download_audio(yt_video_id: str, duration: int = CLIP_DURATION_SEC) -> Optio
     try:
         subprocess.run(
             [
-                "yt-dlp",
+                *yt_dlp_cmd(),
                 "--extract-audio",
                 "--audio-format", "wav",
                 "--postprocessor-args", f"ffmpeg:-ss 30 -t {duration} -ac 1 -ar {SAMPLE_RATE}",
