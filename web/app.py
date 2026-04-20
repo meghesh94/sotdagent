@@ -10,6 +10,13 @@ import webbrowser
 from collections import Counter
 from queue import Empty
 
+# Ensure non-ASCII prints (arrows, em-dashes) don't crash on Windows cp1252.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 from flask import Flask, Response, jsonify, render_template, request, send_from_directory
 
 # Add parent dir to path so we can import the existing modules
@@ -417,6 +424,6 @@ def api_skip(song_id):
 
 if __name__ == "__main__":
     port = 5555
-    print(f"\n  SOTD Music Agent → http://localhost:{port}\n")
+    print(f"\n  SOTD Music Agent -> http://localhost:{port}\n")
     webbrowser.open(f"http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
